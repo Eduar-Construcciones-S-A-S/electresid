@@ -28,7 +28,10 @@ export default function AppRoot(){
   useEffect(()=>{
     let observer
     let redirecting=false
+    let disposed=false
+
     const syncTarget=()=>{
+      if(disposed)return
       setTarget(document.querySelector('.content'))
       let inventoryBtn=null
       let productBtn=null
@@ -54,15 +57,23 @@ export default function AppRoot(){
       const active=document.querySelector('.sidebar nav button.active')
       const activeLabel=(active?.textContent||'').trim().toLowerCase()
 
-      // AppV2 todavía inicia internamente en Productos. Como Productos e Inventario
-      // ahora son un solo módulo, redirigimos esa sección antigua al módulo unificado.
       if(active===productBtn && inventoryBtn && !redirecting){
         redirecting=true
-        setTimeout(()=>{inventoryBtn.click();redirecting=false},0)
+        setTimeout(()=>{
+          if(disposed)return
+          inventoryBtn.click()
+          redirecting=false
+        },0)
         return
       }
 
-      if(active){setOverlay(overlayFromLabel(activeLabel))}
+      if(active)setOverlay(overlayFromLabel(activeLabel))
+    }
+
+    const loadProfile=async userId=>{
+      if(!userId||disposed){setProfile(null);return}
+      const{data:p}=await supabase.from('perfiles').select('*').eq('id',userId).single()
+      if(!disposed)setProfile(p||null)
     }
 
     const timer=setTimeout(syncTarget,0)
@@ -76,20 +87,31 @@ export default function AppRoot(){
     }
     document.addEventListener('click',onClick,true)
 
-    supabase.auth.getSession().then(async({data})=>{
+    supabase.auth.getSession().then(({data})=>{
+      if(disposed)return
       const id=data.session?.user?.id
-      if(id){const{data:p}=await supabase.from('perfiles').select('*').eq('id',id).single();setProfile(p)}
+      if(id)loadProfile(id)
+      else setProfile(null)
       setTimeout(syncTarget,0)
     })
 
-    const{data:{subscription}}=supabase.auth.onAuthStateChange(async(_event,session)=>{
-      if(!session){setProfile(null);return}
-      const{data:p}=await supabase.from('perfiles').select('*').eq('id',session.user.id).single()
-      setProfile(p)
-      setTimeout(syncTarget,0)
+    // IMPORTANTE: no hacer await de consultas Supabase dentro del callback de
+    // onAuthStateChange. El cliente de Auth mantiene un lock durante el evento y
+    // esperar otra llamada Supabase aquí puede bloquear signInWithPassword y dejar
+    // el botón de login eternamente en "Procesando...".
+    const{data:{subscription}}=supabase.auth.onAuthStateChange((_event,session)=>{
+      if(disposed)return
+      const id=session?.user?.id
+      setTimeout(()=>{
+        if(disposed)return
+        if(id)loadProfile(id)
+        else setProfile(null)
+        syncTarget()
+      },0)
     })
 
     return()=>{
+      disposed=true
       clearTimeout(timer)
       observer.disconnect()
       document.removeEventListener('click',onClick,true)
