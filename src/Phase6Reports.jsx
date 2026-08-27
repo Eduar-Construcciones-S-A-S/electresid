@@ -1,0 +1,55 @@
+import { useEffect, useMemo, useState } from 'react'
+import { supabase } from './lib/supabase'
+import { BarChart3, Boxes, CircleDollarSign, PackageSearch, RefreshCcw, Smartphone, Wrench, TrendingUp } from 'lucide-react'
+import './phase6-reports.css'
+
+const money=(n=0)=>new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0}).format(Number(n)||0)
+const num=n=>new Intl.NumberFormat('es-CO',{maximumFractionDigits:2}).format(Number(n)||0)
+const date=d=>d?new Intl.DateTimeFormat('es-CO',{dateStyle:'medium'}).format(new Date(d)):'—'
+
+export default function Phase6Reports(){
+  const[tab,setTab]=useState('resumen'),[data,setData]=useState({products:[],categories:[],days:[],months:[],inventory:[],inactive:[],models:[],colors:[],repairs:[],repairIncome:[],origins:[],profit:[]}),[msg,setMsg]=useState(''),[loading,setLoading]=useState(true)
+  const load=async()=>{
+    setLoading(true);setMsg('')
+    const qs=await Promise.all([
+      supabase.from('reporte_ventas_producto').select('*').order('ventas_netas',{ascending:false}).limit(500),
+      supabase.from('reporte_margen_categoria').select('*').order('ventas',{ascending:false}),
+      supabase.from('reporte_ventas_dia').select('*').order('fecha',{ascending:false}).limit(180),
+      supabase.from('reporte_ventas_mes').select('*').order('mes',{ascending:false}).limit(36),
+      supabase.from('reporte_inventario_valorizado').select('*').order('valor_costo',{ascending:false}).limit(1000),
+      supabase.from('reporte_productos_sin_movimiento').select('*').order('dias_sin_movimiento',{ascending:false,nullsFirst:true}).limit(500),
+      supabase.from('reporte_modelos_forros').select('*').order('unidades',{ascending:false}),
+      supabase.from('reporte_colores_forros').select('*').order('unidades',{ascending:false}),
+      supabase.from('reporte_reparaciones_tipo_danio').select('*').order('cantidad',{ascending:false}),
+      supabase.from('reporte_ingresos_reparaciones_mes').select('*').order('mes',{ascending:false}).limit(36),
+      supabase.from('reporte_origenes_compra').select('*').order('total_comprado',{ascending:false}),
+      supabase.from('reporte_utilidad_mensual').select('*').order('mes',{ascending:false}).limit(36)
+    ])
+    const err=qs.find(x=>x.error)?.error
+    if(err)setMsg(err.message)
+    const[k1,k2,k3,k4,k5,k6,k7,k8,k9,k10,k11,k12]=qs
+    setData({products:k1.data||[],categories:k2.data||[],days:k3.data||[],months:k4.data||[],inventory:k5.data||[],inactive:k6.data||[],models:k7.data||[],colors:k8.data||[],repairs:k9.data||[],repairIncome:k10.data||[],origins:k11.data||[],profit:k12.data||[]})
+    setLoading(false)
+  }
+  useEffect(()=>{load()},[])
+  const totals=useMemo(()=>{
+    const inv=data.inventory.reduce((s,x)=>s+Number(x.valor_costo||0),0)
+    const potential=data.inventory.reduce((s,x)=>s+Number(x.valor_venta_potencial||0),0)
+    const low=data.inventory.filter(x=>['BAJO','AGOTADO'].includes(String(x.estado_stock||'').toUpperCase())).length
+    const p=data.profit[0]||{}
+    return {inv,potential,low,sales:Number(p.ventas_netas||0),profit:Number(p.resultado_operativo||0)}
+  },[data])
+  return <div className="r6"><div className="r6-summary"><Kpi icon={CircleDollarSign} label="Ventas netas último mes" value={money(totals.sales)}/><Kpi icon={TrendingUp} label="Resultado operativo último mes" value={money(totals.profit)}/><Kpi icon={Boxes} label="Inventario a costo" value={money(totals.inv)}/><Kpi icon={PackageSearch} label="Stock bajo / agotado" value={totals.low}/></div><section className="panel r6-shell"><div className="r6-head"><div><h2>Fase 6 · Inteligencia y reportes</h2><p>Ventas, márgenes, forros, inventario, reparaciones, compras y rentabilidad.</p></div><button className="secondary compact" onClick={load}><RefreshCcw size={15}/>Actualizar</button></div><div className="r6-tabs">{[['resumen','Resumen'],['productos','Productos'],['forros','Forros'],['ventas','Ventas'],['inventario','Inventario'],['reparaciones','Reparaciones'],['compras','Compras'],['utilidad','Utilidad']].map(([id,label])=><button key={id} className={tab===id?'active':''} onClick={()=>setTab(id)}>{label}</button>)}</div>{msg&&<div className="notice">{msg}</div>}{loading&&<div className="r6-loading">Actualizando reportes…</div>}{tab==='resumen'&&<Summary data={data} totals={totals}/>} {tab==='productos'&&<Products rows={data.products} categories={data.categories}/>} {tab==='forros'&&<Cases models={data.models} colors={data.colors} products={data.products}/>} {tab==='ventas'&&<Sales days={data.days} months={data.months}/>} {tab==='inventario'&&<Inventory rows={data.inventory} inactive={data.inactive}/>} {tab==='reparaciones'&&<Repairs rows={data.repairs} income={data.repairIncome}/>} {tab==='compras'&&<Purchases rows={data.origins}/>} {tab==='utilidad'&&<Profit rows={data.profit}/>}</section></div>
+}
+function Kpi({icon:Icon,label,value}){return <article><Icon size={18}/><span>{label}</span><b>{value}</b></article>}
+function Bars({rows,labelKey,valueKey,formatter=v=>num(v)}){const max=Math.max(1,...rows.map(x=>Number(x[valueKey]||0)));return <div className="r6-bars">{rows.slice(0,10).map((x,i)=><div className="r6-bar" key={i}><div><span>{x[labelKey]||'Sin especificar'}</span><b>{formatter(x[valueKey])}</b></div><div className="track"><i style={{width:`${Math.max(2,Number(x[valueKey]||0)/max*100)}%`}}/></div></div>)}</div>}
+function Summary({data,totals}){return <div className="r6-grid"><Card title="Productos más vendidos"><Bars rows={data.products} labelKey="producto" valueKey="unidades_netas"/></Card><Card title="Ventas por categoría"><Bars rows={data.categories} labelKey="categoria" valueKey="ventas" formatter={money}/></Card><Card title="Modelos de forro más vendidos"><Bars rows={data.models} labelKey="modelo" valueKey="unidades"/></Card><Card title="Tipos de reparación"><Bars rows={data.repairs} labelKey="tipo_danio" valueKey="cantidad"/></Card><Card title="Inventario"><div className="r6-big"><span>Valor potencial de venta</span><b>{money(totals.potential)}</b><small>Valor a costo: {money(totals.inv)}</small></div></Card><Card title="Últimos meses"><Bars rows={data.months} labelKey="mes" valueKey="ventas_netas" formatter={money}/></Card></div>}
+function Products({rows,categories}){return <><Card title="Margen por categoría"><Table heads={['Categoría','Unidades','Ventas','Costo','Utilidad','Margen']} rows={categories.map(x=>[x.categoria,num(x.unidades),money(x.ventas),money(x.costo),money(x.utilidad_bruta),`${num(x.margen_pct)}%`])}/></Card><Card title="Margen por producto"><Table heads={['Producto','Variante','SKU','Unidades netas','Ventas netas','Utilidad','Margen']} rows={rows.map(x=>[x.producto,x.variante||'—',x.sku,num(x.unidades_netas),money(x.ventas_netas),money(x.utilidad_bruta),`${num(x.margen_pct)}%`])}/></Card></>}
+function Cases({models,colors,products}){const cases=products.filter(x=>String(x.categoria).toLowerCase()==='forros');return <div className="r6-grid"><Card title="Forros más vendidos"><Bars rows={cases} labelKey="producto" valueKey="unidades_netas"/></Card><Card title="Modelos más vendidos"><Bars rows={models} labelKey="modelo" valueKey="unidades"/></Card><Card title="Colores más vendidos"><Bars rows={colors} labelKey="color" valueKey="unidades"/></Card><Card title="Detalle de forros"><Table heads={['Producto','Variante','Unidades','Ventas','Margen']} rows={cases.map(x=>[x.producto,x.variante||'—',num(x.unidades_netas),money(x.ventas_netas),`${num(x.margen_pct)}%`])}/></Card></div>}
+function Sales({days,months}){return <><div className="r6-grid"><Card title="Ventas por día"><Bars rows={days} labelKey="fecha" valueKey="ventas_netas" formatter={money}/></Card><Card title="Ventas por mes"><Bars rows={months} labelKey="mes" valueKey="ventas_netas" formatter={money}/></Card></div><Card title="Histórico mensual"><Table heads={['Mes','Ventas brutas','Devoluciones','Ventas netas']} rows={months.map(x=>[date(x.mes),money(x.ventas_brutas),money(x.devoluciones),money(x.ventas_netas)])}/></Card></>}
+function Inventory({rows,inactive}){const alerts=rows.filter(x=>['BAJO','AGOTADO'].includes(String(x.estado_stock||'').toUpperCase()));return <><div className="r6-grid"><Card title="Inventario valorizado"><Table heads={['Producto','SKU','Stock','Costo','Valor costo','Valor venta']} rows={rows.slice(0,30).map(x=>[x.producto,x.sku,num(x.stock),money(x.costo),money(x.valor_costo),money(x.valor_venta_potencial)])}/></Card><Card title="Próximos a agotarse"><Table heads={['Producto','SKU','Stock','Mínimo','Estado']} rows={alerts.map(x=>[x.producto,x.sku,num(x.stock),num(x.stock_minimo),x.estado_stock])}/></Card></div><Card title="Productos sin movimiento"><Table heads={['Producto','SKU','Stock','Último movimiento','Días sin movimiento']} rows={inactive.map(x=>[x.producto,x.sku,num(x.stock),x.ultimo_movimiento?date(x.ultimo_movimiento):'Nunca',x.dias_sin_movimiento??'Nunca'])}/></Card></>}
+function Repairs({rows,income}){return <div className="r6-grid"><Card title="Reparaciones por tipo de daño"><Bars rows={rows} labelKey="tipo_danio" valueKey="cantidad"/></Card><Card title="Ingresos por reparaciones"><Bars rows={income} labelKey="mes" valueKey="ingresos" formatter={money}/></Card><Card title="Detalle por tipo"><Table heads={['Tipo','Cantidad','Valor servicios','Mano de obra']} rows={rows.map(x=>[x.tipo_danio,x.cantidad,money(x.valor_servicios),money(x.mano_obra)])}/></Card><Card title="Histórico de cobros"><Table heads={['Mes','Ingresos','Reparaciones cobradas']} rows={income.map(x=>[date(x.mes),money(x.ingresos),x.reparaciones_cobradas])}/></Card></div>}
+function Purchases({rows}){return <Card title="Orígenes de compra"><div className="notice">Electresid no maneja proveedores. Este reporte usa únicamente el texto opcional “Origen / vendedor” registrado en cada compra.</div><Table heads={['Origen','Compras','Total comprado','Pagado','Saldo']} rows={rows.map(x=>[x.origen,x.compras,money(x.total_comprado),money(x.total_pagado),money(x.saldo_pendiente)])}/></Card>}
+function Profit({rows}){return <><Card title="Utilidad y resultado operativo"><Table heads={['Mes','Ventas netas','Costo ventas','Utilidad productos','Ingresos reparaciones','Gastos','Resultado operativo']} rows={rows.map(x=>[date(x.mes),money(x.ventas_netas),money(x.costo_ventas),money(x.utilidad_bruta_productos),money(x.ingresos_reparaciones),money(x.gastos),money(x.resultado_operativo)])}/></Card><div className="notice">Resultado operativo = utilidad bruta de productos + cobros de reparaciones − gastos registrados. No sustituye contabilidad tributaria formal.</div></>}
+function Card({title,children}){return <section className="r6-card"><h3>{title}</h3>{children}</section>}
+function Table({heads,rows}){return <div className="table-wrap"><table><thead><tr>{heads.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{rows.length?rows.map((r,i)=><tr key={i}>{r.map((c,j)=><td key={j}>{c}</td>)}</tr>):<tr><td className="empty" colSpan={heads.length}>Sin datos todavía.</td></tr>}</tbody></table></div>}
