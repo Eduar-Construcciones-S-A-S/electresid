@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 180">
+  <rect width="640" height="180" rx="24" fill="#f7f7f3"/>
+  <g fill="none" stroke="#17191f" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"><path d="M138 42h280v20h28v58h-28v20H138z"/><path d="M102 91H48"/><path d="M492 91h78"/></g>
+  <rect x="70" y="80" width="30" height="22" rx="4" fill="#553664"/><rect x="570" y="80" width="30" height="22" rx="4" fill="#553664"/>
+  <path d="M420 61l-24 36h21l-13 33 42-48h-22l17-21z" fill="#ffd21f" stroke="#b59b00" stroke-width="3"/>
+  <text x="210" y="92" font-family="Georgia,serif" font-size="40" font-style="italic" fill="#3a243d">Electresid</text>
+  <text x="246" y="113" font-family="Arial,sans-serif" font-size="12" letter-spacing="2" fill="#555">SERVICIO TÉCNICO</text>
+  <text x="174" y="155" font-family="Arial,sans-serif" font-size="15" font-weight="700" letter-spacing="1.2" fill="#23252b">CELULARES · COMPUTADORES · CONSOLAS</text>
+</svg>
