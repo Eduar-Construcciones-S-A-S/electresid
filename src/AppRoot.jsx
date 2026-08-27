@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import AppV2 from './AppV2'
 import InventoryPhase2 from './InventoryPhase2'
 import Phase3POS from './Phase3POS'
+import Phase4Repairs from './Phase4Repairs'
 import { supabase } from './lib/supabase'
 
 export default function AppRoot(){
@@ -24,6 +25,7 @@ export default function AppRoot(){
       if(label==='inventario')setOverlay('inventario')
       else if(label==='punto de venta')setOverlay('pos')
       else if(label==='caja')setOverlay('caja')
+      else if(label==='reparaciones')setOverlay('reparaciones')
       else setOverlay(null)
     }
     document.addEventListener('click',onClick,true)
@@ -44,6 +46,7 @@ export default function AppRoot(){
   if(target&&overlay==='inventario')portal=createPortal(<div className="phase2-portal"><InventoryPhase2 profile={profile}/></div>,target)
   if(target&&overlay==='pos')portal=createPortal(<div className="phase2-portal"><Phase3POS initialTab="pos" profile={profile}/></div>,target)
   if(target&&overlay==='caja')portal=createPortal(<div className="phase2-portal"><Phase3POS initialTab="caja" profile={profile}/></div>,target)
+  if(target&&overlay==='reparaciones')portal=createPortal(<div className="phase2-portal"><Phase4Repairs profile={profile}/></div>,target)
 
   return <><AppV2/>{portal}</>
 }
