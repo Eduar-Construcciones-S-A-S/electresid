@@ -4,6 +4,7 @@ import AppV2 from './AppV2'
 import Phase1Products from './Phase1Products'
 import InventoryPhase2 from './InventoryPhase2'
 import Phase3POS from './Phase3POS'
+import Phase3POSPatched from './Phase3POSPatched'
 import Phase4Repairs from './Phase4Repairs'
 import Phase5Administration from './Phase5Administration'
 import Phase6Reports from './Phase6Reports'
@@ -61,7 +62,7 @@ export default function AppRoot(){
   let portal=null
   if(target&&overlay==='productos')portal=createPortal(<div className="phase2-portal"><Phase1Products profile={profile}/></div>,target)
   if(target&&overlay==='inventario')portal=createPortal(<div className="phase2-portal"><InventoryPhase2 profile={profile}/></div>,target)
-  if(target&&overlay==='pos')portal=createPortal(<div className="phase2-portal"><Phase3POS initialTab="pos" profile={profile}/></div>,target)
+  if(target&&overlay==='pos')portal=createPortal(<div className="phase2-portal"><Phase3POSPatched initialTab="pos" profile={profile}/></div>,target)
   if(target&&overlay==='caja')portal=createPortal(<div className="phase2-portal"><Phase3POS initialTab="caja" profile={profile}/></div>,target)
   if(target&&overlay==='reparaciones')portal=createPortal(<div className="phase2-portal"><Phase4Repairs profile={profile}/></div>,target)
   if(target&&overlay==='administracion')portal=createPortal(<div className="phase2-portal"><Phase5Administration profile={profile}/></div>,target)
