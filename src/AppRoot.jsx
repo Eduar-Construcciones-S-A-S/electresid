@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import AppV2 from './AppV2'
 import InventoryPhase2 from './InventoryPhase2'
+import Phase3POS from './Phase3POS'
 import { supabase } from './lib/supabase'
 
 export default function AppRoot(){
-  const[showInventory,setShowInventory]=useState(false)
+  const[overlay,setOverlay]=useState(null)
   const[target,setTarget]=useState(null)
   const[profile,setProfile]=useState(null)
 
@@ -20,7 +21,10 @@ export default function AppRoot(){
       const btn=e.target.closest('.sidebar nav button')
       if(!btn)return
       const label=(btn.textContent||'').trim().toLowerCase()
-      setShowInventory(label==='inventario')
+      if(label==='inventario')setOverlay('inventario')
+      else if(label==='punto de venta')setOverlay('pos')
+      else if(label==='caja')setOverlay('caja')
+      else setOverlay(null)
     }
     document.addEventListener('click',onClick,true)
 
@@ -29,12 +33,17 @@ export default function AppRoot(){
       if(id){const{data:p}=await supabase.from('perfiles').select('*').eq('id',id).single();setProfile(p)}
     })
     const{data:{subscription}}=supabase.auth.onAuthStateChange(async(_event,session)=>{
-      if(!session){setProfile(null);return}
+      if(!session){setProfile(null);setOverlay(null);return}
       const{data:p}=await supabase.from('perfiles').select('*').eq('id',session.user.id).single();setProfile(p)
     })
 
     return()=>{clearTimeout(timer);observer.disconnect();document.removeEventListener('click',onClick,true);subscription.unsubscribe()}
   },[])
 
-  return <><AppV2/>{showInventory&&target&&createPortal(<div className="phase2-portal"><InventoryPhase2 profile={profile}/></div>,target)}</>
+  let portal=null
+  if(target&&overlay==='inventario')portal=createPortal(<div className="phase2-portal"><InventoryPhase2 profile={profile}/></div>,target)
+  if(target&&overlay==='pos')portal=createPortal(<div className="phase2-portal"><Phase3POS initialTab="pos" profile={profile}/></div>,target)
+  if(target&&overlay==='caja')portal=createPortal(<div className="phase2-portal"><Phase3POS initialTab="caja" profile={profile}/></div>,target)
+
+  return <><AppV2/>{portal}</>
 }
