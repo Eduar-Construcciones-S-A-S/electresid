@@ -5,6 +5,7 @@ import InventoryPhase2 from './InventoryPhase2'
 import Phase3POS from './Phase3POS'
 import Phase4Repairs from './Phase4Repairs'
 import Phase5Administration from './Phase5Administration'
+import Phase6Reports from './Phase6Reports'
 import { supabase } from './lib/supabase'
 
 export default function AppRoot(){
@@ -38,6 +39,7 @@ export default function AppRoot(){
       else if(label==='caja')setOverlay('caja')
       else if(label==='reparaciones')setOverlay('reparaciones')
       else if(label==='administración')setOverlay('administracion')
+      else if(label==='reportes')setOverlay('reportes')
       else setOverlay(null)
     }
     document.addEventListener('click',onClick,true)
@@ -60,6 +62,7 @@ export default function AppRoot(){
   if(target&&overlay==='caja')portal=createPortal(<div className="phase2-portal"><Phase3POS initialTab="caja" profile={profile}/></div>,target)
   if(target&&overlay==='reparaciones')portal=createPortal(<div className="phase2-portal"><Phase4Repairs profile={profile}/></div>,target)
   if(target&&overlay==='administracion')portal=createPortal(<div className="phase2-portal"><Phase5Administration profile={profile}/></div>,target)
+  if(target&&overlay==='reportes')portal=createPortal(<div className="phase2-portal"><Phase6Reports profile={profile}/></div>,target)
 
   return <><AppV2/>{portal}</>
 }
