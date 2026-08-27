@@ -11,7 +11,7 @@ import Phase6Reports from './Phase6Reports'
 import { supabase } from './lib/supabase'
 
 export default function AppRoot(){
-  const[overlay,setOverlay]=useState(null)
+  const[overlay,setOverlay]=useState('productos')
   const[target,setTarget]=useState(null)
   const[profile,setProfile]=useState(null)
 
@@ -49,11 +49,11 @@ export default function AppRoot(){
 
     supabase.auth.getSession().then(async({data})=>{
       const id=data.session?.user?.id
-      if(id){const{data:p}=await supabase.from('perfiles').select('*').eq('id',id).single();setProfile(p)}
+      if(id){const{data:p}=await supabase.from('perfiles').select('*').eq('id',id).single();setProfile(p);setOverlay('productos')}
     })
     const{data:{subscription}}=supabase.auth.onAuthStateChange(async(_event,session)=>{
-      if(!session){setProfile(null);setOverlay(null);return}
-      const{data:p}=await supabase.from('perfiles').select('*').eq('id',session.user.id).single();setProfile(p)
+      if(!session){setProfile(null);setOverlay('productos');return}
+      const{data:p}=await supabase.from('perfiles').select('*').eq('id',session.user.id).single();setProfile(p);setOverlay('productos')
     })
 
     return()=>{clearTimeout(timer);observer.disconnect();document.removeEventListener('click',onClick,true);subscription.unsubscribe()}
