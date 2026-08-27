@@ -13,7 +13,13 @@ export default function AppRoot(){
 
   useEffect(()=>{
     let observer
-    const syncTarget=()=>setTarget(document.querySelector('.content'))
+    const syncTarget=()=>{
+      setTarget(document.querySelector('.content'))
+      document.querySelectorAll('.sidebar nav button').forEach(btn=>{
+        const label=(btn.textContent||'').trim().toLowerCase()
+        if(label==='proveedores') btn.style.display='none'
+      })
+    }
     const timer=setTimeout(syncTarget,0)
     observer=new MutationObserver(syncTarget)
     observer.observe(document.body,{childList:true,subtree:true})
