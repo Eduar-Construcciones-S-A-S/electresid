@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import AppV2 from './AppV2'
-import Phase1Products from './Phase1Products'
 import InventoryPhase2 from './InventoryPhase2'
 import Phase3POS from './Phase3POS'
 import Phase3POSPatched from './Phase3POSPatched'
@@ -12,8 +11,7 @@ import { supabase } from './lib/supabase'
 
 function overlayFromLabel(label){
   const l=(label||'').trim().toLowerCase()
-  if(l==='productos')return 'productos'
-  if(l==='inventario')return 'inventario'
+  if(l==='productos'||l==='inventario'||l==='productos e inventario')return 'inventario'
   if(l==='punto de venta')return 'pos'
   if(l==='caja')return 'caja'
   if(l==='reparaciones')return 'reparaciones'
@@ -23,31 +21,48 @@ function overlayFromLabel(label){
 }
 
 export default function AppRoot(){
-  const[overlay,setOverlay]=useState('productos')
+  const[overlay,setOverlay]=useState('inventario')
   const[target,setTarget]=useState(null)
   const[profile,setProfile]=useState(null)
 
   useEffect(()=>{
     let observer
+    let redirecting=false
     const syncTarget=()=>{
       setTarget(document.querySelector('.content'))
+      let inventoryBtn=null
+      let productBtn=null
 
       document.querySelectorAll('.sidebar nav button').forEach(btn=>{
         const label=(btn.textContent||'').trim().toLowerCase()
         if(label==='proveedores')btn.style.display='none'
+        if(label==='productos'){
+          productBtn=btn
+          btn.style.display='none'
+        }
+        if(label==='inventario'||label==='productos e inventario'){
+          inventoryBtn=btn
+          const text=btn.querySelector('span')
+          if(text)text.textContent='Productos e inventario'
+        }
         if(label==='gastos'){
           const text=btn.querySelector('span')
           if(text)text.textContent='Administración'
         }
       })
 
-      // La sección activa de AppV2 es la fuente de verdad. Así evitamos que
-      // el portal quede mostrando Productos cuando el menú ya está en otra página.
       const active=document.querySelector('.sidebar nav button.active')
-      if(active){
-        const next=overlayFromLabel(active.textContent)
-        setOverlay(next)
+      const activeLabel=(active?.textContent||'').trim().toLowerCase()
+
+      // AppV2 todavía inicia internamente en Productos. Como Productos e Inventario
+      // ahora son un solo módulo, redirigimos esa sección antigua al módulo unificado.
+      if(active===productBtn && inventoryBtn && !redirecting){
+        redirecting=true
+        setTimeout(()=>{inventoryBtn.click();redirecting=false},0)
+        return
       }
+
+      if(active){setOverlay(overlayFromLabel(activeLabel))}
     }
 
     const timer=setTimeout(syncTarget,0)
@@ -63,10 +78,7 @@ export default function AppRoot(){
 
     supabase.auth.getSession().then(async({data})=>{
       const id=data.session?.user?.id
-      if(id){
-        const{data:p}=await supabase.from('perfiles').select('*').eq('id',id).single()
-        setProfile(p)
-      }
+      if(id){const{data:p}=await supabase.from('perfiles').select('*').eq('id',id).single();setProfile(p)}
       setTimeout(syncTarget,0)
     })
 
@@ -74,8 +86,6 @@ export default function AppRoot(){
       if(!session){setProfile(null);return}
       const{data:p}=await supabase.from('perfiles').select('*').eq('id',session.user.id).single()
       setProfile(p)
-      // No reiniciar overlay a Productos: eventos como TOKEN_REFRESHED ocurren
-      // mientras el usuario está navegando y antes provocaban el bug visual.
       setTimeout(syncTarget,0)
     })
 
@@ -88,7 +98,6 @@ export default function AppRoot(){
   },[])
 
   let portal=null
-  if(target&&overlay==='productos')portal=createPortal(<div className="phase2-portal"><Phase1Products profile={profile}/></div>,target)
   if(target&&overlay==='inventario')portal=createPortal(<div className="phase2-portal"><InventoryPhase2 profile={profile}/></div>,target)
   if(target&&overlay==='pos')portal=createPortal(<div className="phase2-portal"><Phase3POSPatched initialTab="pos" profile={profile}/></div>,target)
   if(target&&overlay==='caja')portal=createPortal(<div className="phase2-portal"><Phase3POS initialTab="caja" profile={profile}/></div>,target)
