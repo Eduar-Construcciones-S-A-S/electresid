@@ -4,6 +4,7 @@ import AppV2 from './AppV2'
 import InventoryPhase2 from './InventoryPhase2'
 import Phase3POS from './Phase3POS'
 import Phase4Repairs from './Phase4Repairs'
+import Phase5Administration from './Phase5Administration'
 import { supabase } from './lib/supabase'
 
 export default function AppRoot(){
@@ -17,7 +18,11 @@ export default function AppRoot(){
       setTarget(document.querySelector('.content'))
       document.querySelectorAll('.sidebar nav button').forEach(btn=>{
         const label=(btn.textContent||'').trim().toLowerCase()
-        if(label==='proveedores') btn.style.display='none'
+        if(label==='proveedores')btn.style.display='none'
+        if(label==='gastos'){
+          const text=btn.querySelector('span')
+          if(text)text.textContent='Administración'
+        }
       })
     }
     const timer=setTimeout(syncTarget,0)
@@ -32,6 +37,7 @@ export default function AppRoot(){
       else if(label==='punto de venta')setOverlay('pos')
       else if(label==='caja')setOverlay('caja')
       else if(label==='reparaciones')setOverlay('reparaciones')
+      else if(label==='administración')setOverlay('administracion')
       else setOverlay(null)
     }
     document.addEventListener('click',onClick,true)
@@ -53,6 +59,7 @@ export default function AppRoot(){
   if(target&&overlay==='pos')portal=createPortal(<div className="phase2-portal"><Phase3POS initialTab="pos" profile={profile}/></div>,target)
   if(target&&overlay==='caja')portal=createPortal(<div className="phase2-portal"><Phase3POS initialTab="caja" profile={profile}/></div>,target)
   if(target&&overlay==='reparaciones')portal=createPortal(<div className="phase2-portal"><Phase4Repairs profile={profile}/></div>,target)
+  if(target&&overlay==='administracion')portal=createPortal(<div className="phase2-portal"><Phase5Administration profile={profile}/></div>,target)
 
   return <><AppV2/>{portal}</>
 }
