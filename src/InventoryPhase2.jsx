@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from './lib/supabase'
-import { AlertTriangle, ArrowDownToLine, ArrowUpFromLine, Boxes, ClipboardCheck, History, RefreshCcw, Search } from 'lucide-react'
+import Phase1Products from './Phase1Products'
+import { AlertTriangle, ArrowDownToLine, ArrowUpFromLine, Boxes, ClipboardCheck, History, PackagePlus, Pencil, RefreshCcw, Search } from 'lucide-react'
 import './inventory-phase2.css'
 
 const money=(n=0)=>new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0}).format(Number(n)||0)
@@ -8,6 +9,7 @@ const num=n=>new Intl.NumberFormat('es-CO',{maximumFractionDigits:3}).format(Num
 const date=d=>new Intl.DateTimeFormat('es-CO',{dateStyle:'short',timeStyle:'short'}).format(new Date(d))
 
 const tabs=[
+  ['productos','Productos',PackagePlus],
   ['actual','Inventario actual',Boxes],
   ['entrada','Entradas',ArrowDownToLine],
   ['salida','Salidas',ArrowUpFromLine],
@@ -17,7 +19,7 @@ const tabs=[
 ]
 
 export default function InventoryPhase2({profile}){
-  const[tab,setTab]=useState('actual')
+  const[tab,setTab]=useState('productos')
   const[stock,setStock]=useState([])
   const[kardex,setKardex]=useState([])
   const[alerts,setAlerts]=useState([])
@@ -81,11 +83,12 @@ export default function InventoryPhase2({profile}){
     </div>
 
     <section className="panel inv2-shell">
-      <div className="inv2-head"><div><h2>Fase 2 · Inventario</h2><p>Entradas, salidas, ajustes, existencias, mínimos, Kardex y alertas en un solo módulo.</p></div><button className="secondary compact" onClick={load}><RefreshCcw size={15}/>Actualizar</button></div>
+      <div className="inv2-head"><div><h2>Productos e inventario</h2><p>Catálogo, precios, resurtido, existencias, entradas, salidas, Kardex y alertas en un solo módulo.</p></div><button className="secondary compact" onClick={load}><RefreshCcw size={15}/>Actualizar</button></div>
       <div className="inv2-tabs">{tabs.map(([id,label,Icon])=><button key={id} onClick={()=>{setTab(id);setMsg('')}} className={tab===id?'active':''}><Icon size={16}/>{label}{id==='alertas'&&alerts.length>0?<em>{alerts.length}</em>:null}</button>)}</div>
       {msg&&<div className="notice">{msg}</div>}
 
-      {tab==='actual'&&<InventoryCurrent rows={filtered} loading={loading} query={query} setQuery={setQuery}/>} 
+      {tab==='productos'&&<Phase1Products profile={profile}/>} 
+      {tab==='actual'&&<InventoryCurrent rows={filtered} loading={loading} query={query} setQuery={setQuery} canAdjust={canAdjust} reload={load} setMsg={setMsg}/>} 
       {tab==='entrada'&&<MovementForm type="entrada" stock={stock} product={product} setProduct={selectProduct} qty={qty} setQty={setQty} cost={cost} setCost={setCost} note={note} setNote={setNote} selected={selected} canAdjust={canAdjust} run={run} reset={reset}/>} 
       {tab==='salida'&&<MovementForm type="salida" stock={stock} product={product} setProduct={setProduct} qty={qty} setQty={setQty} note={note} setNote={setNote} selected={selected} canAdjust={canAdjust} run={run} reset={reset}/>} 
       {tab==='ajuste'&&<AdjustmentForm stock={stock} product={product} setProduct={setProduct} qty={qty} setQty={setQty} note={note} setNote={setNote} selected={selected} canAdjust={canAdjust} run={run} reset={reset}/>} 
@@ -95,8 +98,17 @@ export default function InventoryPhase2({profile}){
   </div>
 }
 
-function InventoryCurrent({rows,loading,query,setQuery}){
-  return <div><div className="inv2-toolbar"><div className="search"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar producto, SKU, categoría o marca..."/></div></div><div className="table-wrap"><table><thead><tr><th>Producto</th><th>SKU</th><th>Categoría</th><th>Stock actual</th><th>Stock mínimo</th><th>Estado</th><th>Costo compra</th><th>Precio venta</th><th>Margen unitario</th><th>Valor inventario</th></tr></thead><tbody>{loading?<tr><td colSpan="10" className="empty">Cargando inventario...</td></tr>:rows.length?rows.map(x=><tr key={x.variante_id}><td><b>{x.producto}</b><small className="cell-sub">{x.variante||'Sin variante'}</small></td><td>{x.sku}</td><td>{x.categoria}</td><td><strong>{num(x.stock_actual)}</strong></td><td>{num(x.stock_minimo)}</td><td><StockBadge state={x.estado_stock}/></td><td>{money(x.costo)}</td><td>{money(x.precio_venta)}</td><td>{money(Number(x.precio_venta||0)-Number(x.costo||0))}</td><td>{money(x.valor_costo)}</td></tr>):<tr><td colSpan="10" className="empty">No hay productos con inventario.</td></tr>}</tbody></table></div></div>
+function InventoryCurrent({rows,loading,query,setQuery,canAdjust,reload,setMsg}){
+  const[editing,setEditing]=useState(null)
+  const[price,setPrice]=useState('')
+  const savePrice=async()=>{
+    const value=Number(price)
+    if(!editing||!Number.isFinite(value)||value<0)return setMsg('Ingresa un precio de venta válido.')
+    const{error}=await supabase.rpc('actualizar_precio_venta',{p_variante_id:editing.variante_id,p_precio_venta:value})
+    if(error)return setMsg(error.message)
+    setEditing(null);setPrice('');setMsg('Precio de venta actualizado correctamente.');await reload()
+  }
+  return <div><div className="inv2-toolbar"><div className="search"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar producto, SKU, categoría o marca..."/></div></div><div className="table-wrap"><table><thead><tr><th>Producto</th><th>SKU</th><th>Categoría</th><th>Stock actual</th><th>Stock mínimo</th><th>Estado</th><th>Costo compra</th><th>Precio venta</th><th>Margen unitario</th><th>Valor inventario</th><th>Acción</th></tr></thead><tbody>{loading?<tr><td colSpan="11" className="empty">Cargando inventario...</td></tr>:rows.length?rows.map(x=><tr key={x.variante_id}><td><b>{x.producto}</b><small className="cell-sub">{x.variante||'Sin variante'}</small></td><td>{x.sku}</td><td>{x.categoria}</td><td><strong>{num(x.stock_actual)}</strong></td><td>{num(x.stock_minimo)}</td><td><StockBadge state={x.estado_stock}/></td><td>{money(x.costo)}</td><td>{money(x.precio_venta)}</td><td>{money(Number(x.precio_venta||0)-Number(x.costo||0))}</td><td>{money(x.valor_costo)}</td><td><button className="mini-btn" disabled={!canAdjust} onClick={()=>{setEditing(x);setPrice(String(x.precio_venta??0))}}><Pencil size={14}/> Precio</button></td></tr>):<tr><td colSpan="11" className="empty">No hay productos con inventario.</td></tr>}</tbody></table></div>{editing&&<div className="p1p-modal-back"><section className="panel p1p-modal"><div className="panel-head"><div><h3>Modificar precio de venta</h3><p>{editing.producto} · {editing.sku}</p></div></div><div className="movement-preview"><span>Costo actual <b>{money(editing.costo)}</b></span><span>Precio actual <b>{money(editing.precio_venta)}</b></span><span>Nuevo margen <b>{money(Number(price||0)-Number(editing.costo||0))}</b></span></div><label className="field"><span>Nuevo precio de venta</span><input type="number" min="0" value={price} onChange={e=>setPrice(e.target.value)} autoFocus/></label><div className="wizard-footer"><button className="secondary" onClick={()=>setEditing(null)}>Cancelar</button><button className="primary" onClick={savePrice}>Guardar nuevo precio</button></div></section></div>}</div>
 }
 
 function ProductSelect({stock,value,onChange}){return <select value={value} onChange={e=>onChange(e.target.value)}><option value="">Selecciona producto...</option>{stock.map(x=><option key={x.variante_id} value={x.variante_id}>{x.sku} · {x.producto}{x.variante?` · ${x.variante}`:''} · Stock ${num(x.stock_actual)}</option>)}</select>}
