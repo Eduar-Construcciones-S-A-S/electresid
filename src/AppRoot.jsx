@@ -1,13 +1,14 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import AppV2 from './AppV2'
-import InventoryPhase2 from './InventoryPhase2'
-import Phase3POS from './Phase3POS'
-import Phase3POSPatched from './Phase3POSPatched'
-import Phase4Repairs from './Phase4Repairs'
-import Phase5Administration from './Phase5Administration'
-import Phase6Reports from './Phase6Reports'
 import { supabase } from './lib/supabase'
+
+const InventoryPhase2=lazy(()=>import('./InventoryPhase2'))
+const Phase3POS=lazy(()=>import('./Phase3POS'))
+const Phase3POSPatched=lazy(()=>import('./Phase3POSPatched'))
+const Phase4Repairs=lazy(()=>import('./Phase4Repairs'))
+const Phase5Administration=lazy(()=>import('./Phase5Administration'))
+const Phase6Reports=lazy(()=>import('./Phase6Reports'))
 
 function overlayFromLabel(label){
   const l=(label||'').trim().toLowerCase()
@@ -18,6 +19,10 @@ function overlayFromLabel(label){
   if(l==='administración')return 'administracion'
   if(l==='reportes')return 'reportes'
   return null
+}
+
+function ModuleLoader(){
+  return <div className="phase2-portal"><section className="panel"><div className="notice">Cargando módulo…</div></section></div>
 }
 
 export default function AppRoot(){
@@ -95,10 +100,6 @@ export default function AppRoot(){
       setTimeout(syncTarget,0)
     })
 
-    // IMPORTANTE: no hacer await de consultas Supabase dentro del callback de
-    // onAuthStateChange. El cliente de Auth mantiene un lock durante el evento y
-    // esperar otra llamada Supabase aquí puede bloquear signInWithPassword y dejar
-    // el botón de login eternamente en "Procesando...".
     const{data:{subscription}}=supabase.auth.onAuthStateChange((_event,session)=>{
       if(disposed)return
       const id=session?.user?.id
@@ -119,13 +120,17 @@ export default function AppRoot(){
     }
   },[])
 
-  let portal=null
-  if(target&&overlay==='inventario')portal=createPortal(<div className="phase2-portal"><InventoryPhase2 profile={profile}/></div>,target)
-  if(target&&overlay==='pos')portal=createPortal(<div className="phase2-portal"><Phase3POSPatched initialTab="pos" profile={profile}/></div>,target)
-  if(target&&overlay==='caja')portal=createPortal(<div className="phase2-portal"><Phase3POS initialTab="caja" profile={profile}/></div>,target)
-  if(target&&overlay==='reparaciones')portal=createPortal(<div className="phase2-portal"><Phase4Repairs profile={profile}/></div>,target)
-  if(target&&overlay==='administracion')portal=createPortal(<div className="phase2-portal"><Phase5Administration profile={profile}/></div>,target)
-  if(target&&overlay==='reportes')portal=createPortal(<div className="phase2-portal"><Phase6Reports profile={profile}/></div>,target)
+  let module=null
+  if(overlay==='inventario')module=<InventoryPhase2 profile={profile}/>
+  if(overlay==='pos')module=<Phase3POSPatched initialTab="pos" profile={profile}/>
+  if(overlay==='caja')module=<Phase3POS initialTab="caja" profile={profile}/>
+  if(overlay==='reparaciones')module=<Phase4Repairs profile={profile}/>
+  if(overlay==='administracion')module=<Phase5Administration profile={profile}/>
+  if(overlay==='reportes')module=<Phase6Reports profile={profile}/>
+
+  const portal=target&&module
+    ?createPortal(<Suspense fallback={<ModuleLoader/>}><div className="phase2-portal">{module}</div></Suspense>,target)
+    :null
 
   return <><AppV2/>{portal}</>
 }
