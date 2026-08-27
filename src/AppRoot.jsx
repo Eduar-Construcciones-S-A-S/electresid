@@ -10,6 +10,18 @@ import Phase5Administration from './Phase5Administration'
 import Phase6Reports from './Phase6Reports'
 import { supabase } from './lib/supabase'
 
+function overlayFromLabel(label){
+  const l=(label||'').trim().toLowerCase()
+  if(l==='productos')return 'productos'
+  if(l==='inventario')return 'inventario'
+  if(l==='punto de venta')return 'pos'
+  if(l==='caja')return 'caja'
+  if(l==='reparaciones')return 'reparaciones'
+  if(l==='administración')return 'administracion'
+  if(l==='reportes')return 'reportes'
+  return null
+}
+
 export default function AppRoot(){
   const[overlay,setOverlay]=useState('productos')
   const[target,setTarget]=useState(null)
@@ -19,6 +31,7 @@ export default function AppRoot(){
     let observer
     const syncTarget=()=>{
       setTarget(document.querySelector('.content'))
+
       document.querySelectorAll('.sidebar nav button').forEach(btn=>{
         const label=(btn.textContent||'').trim().toLowerCase()
         if(label==='proveedores')btn.style.display='none'
@@ -27,36 +40,51 @@ export default function AppRoot(){
           if(text)text.textContent='Administración'
         }
       })
+
+      // La sección activa de AppV2 es la fuente de verdad. Así evitamos que
+      // el portal quede mostrando Productos cuando el menú ya está en otra página.
+      const active=document.querySelector('.sidebar nav button.active')
+      if(active){
+        const next=overlayFromLabel(active.textContent)
+        setOverlay(next)
+      }
     }
+
     const timer=setTimeout(syncTarget,0)
     observer=new MutationObserver(syncTarget)
-    observer.observe(document.body,{childList:true,subtree:true})
+    observer.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class']})
 
     const onClick=e=>{
       const btn=e.target.closest('.sidebar nav button')
       if(!btn)return
-      const label=(btn.textContent||'').trim().toLowerCase()
-      if(label==='productos')setOverlay('productos')
-      else if(label==='inventario')setOverlay('inventario')
-      else if(label==='punto de venta')setOverlay('pos')
-      else if(label==='caja')setOverlay('caja')
-      else if(label==='reparaciones')setOverlay('reparaciones')
-      else if(label==='administración')setOverlay('administracion')
-      else if(label==='reportes')setOverlay('reportes')
-      else setOverlay(null)
+      setOverlay(overlayFromLabel(btn.textContent))
     }
     document.addEventListener('click',onClick,true)
 
     supabase.auth.getSession().then(async({data})=>{
       const id=data.session?.user?.id
-      if(id){const{data:p}=await supabase.from('perfiles').select('*').eq('id',id).single();setProfile(p);setOverlay('productos')}
-    })
-    const{data:{subscription}}=supabase.auth.onAuthStateChange(async(_event,session)=>{
-      if(!session){setProfile(null);setOverlay('productos');return}
-      const{data:p}=await supabase.from('perfiles').select('*').eq('id',session.user.id).single();setProfile(p);setOverlay('productos')
+      if(id){
+        const{data:p}=await supabase.from('perfiles').select('*').eq('id',id).single()
+        setProfile(p)
+      }
+      setTimeout(syncTarget,0)
     })
 
-    return()=>{clearTimeout(timer);observer.disconnect();document.removeEventListener('click',onClick,true);subscription.unsubscribe()}
+    const{data:{subscription}}=supabase.auth.onAuthStateChange(async(_event,session)=>{
+      if(!session){setProfile(null);return}
+      const{data:p}=await supabase.from('perfiles').select('*').eq('id',session.user.id).single()
+      setProfile(p)
+      // No reiniciar overlay a Productos: eventos como TOKEN_REFRESHED ocurren
+      // mientras el usuario está navegando y antes provocaban el bug visual.
+      setTimeout(syncTarget,0)
+    })
+
+    return()=>{
+      clearTimeout(timer)
+      observer.disconnect()
+      document.removeEventListener('click',onClick,true)
+      subscription.unsubscribe()
+    }
   },[])
 
   let portal=null
