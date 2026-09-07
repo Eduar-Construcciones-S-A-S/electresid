@@ -1,7 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import AppV2 from './AppV2'
-import { supabase } from './lib/supabase'
 
 const InventoryPhase2=lazy(()=>import('./InventoryPhase2'))
 const Phase3POS=lazy(()=>import('./Phase3POS'))
@@ -59,6 +58,17 @@ export default function AppRoot(){
         }
       })
 
+      // AppV2 es el único dueño de la sesión de Supabase. AppRoot NO llama
+      // getSession/onAuthStateChange para evitar locks duplicados de Auth.
+      // Para los módulos nuevos solo necesitamos el rol; lo leemos de la UI
+      // que AppV2 ya construye después de cargar el perfil.
+      const roleText=document.querySelector('.userbox span')?.textContent?.trim().toLowerCase()
+      if(roleText && ['admin','cajero','tecnico','usuario'].includes(roleText)){
+        setProfile(prev=>prev?.rol===roleText?prev:{rol:roleText})
+      }else if(!document.querySelector('.app-shell')){
+        setProfile(null)
+      }
+
       const active=document.querySelector('.sidebar nav button.active')
       const activeLabel=(active?.textContent||'').trim().toLowerCase()
 
@@ -75,12 +85,6 @@ export default function AppRoot(){
       if(active)setOverlay(overlayFromLabel(activeLabel))
     }
 
-    const loadProfile=async userId=>{
-      if(!userId||disposed){setProfile(null);return}
-      const{data:p}=await supabase.from('perfiles').select('*').eq('id',userId).single()
-      if(!disposed)setProfile(p||null)
-    }
-
     const timer=setTimeout(syncTarget,0)
     observer=new MutationObserver(syncTarget)
     observer.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class']})
@@ -92,31 +96,11 @@ export default function AppRoot(){
     }
     document.addEventListener('click',onClick,true)
 
-    supabase.auth.getSession().then(({data})=>{
-      if(disposed)return
-      const id=data.session?.user?.id
-      if(id)loadProfile(id)
-      else setProfile(null)
-      setTimeout(syncTarget,0)
-    })
-
-    const{data:{subscription}}=supabase.auth.onAuthStateChange((_event,session)=>{
-      if(disposed)return
-      const id=session?.user?.id
-      setTimeout(()=>{
-        if(disposed)return
-        if(id)loadProfile(id)
-        else setProfile(null)
-        syncTarget()
-      },0)
-    })
-
     return()=>{
       disposed=true
       clearTimeout(timer)
       observer.disconnect()
       document.removeEventListener('click',onClick,true)
-      subscription.unsubscribe()
     }
   },[])
 
