@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import AppV2 from './AppV2'
 
@@ -15,135 +15,120 @@ function overlayFromLabel(label){
   if(l==='punto de venta')return 'pos'
   if(l==='caja')return 'caja'
   if(l==='reparaciones')return 'reparaciones'
-  if(l==='administración')return 'administracion'
+  if(l==='administración'||l==='gastos')return 'administracion'
   if(l==='reportes')return 'reportes'
-  // Usuarios, Categorías, Clientes, Resumen y Configuración son pantallas
-  // nativas de AppV2. null significa que NO debe existir un portal encima.
   return null
 }
 
 function ModuleLoader(){
-  return <div className="phase2-portal"><section className="panel"><div className="notice">Cargando módulo…</div></section></div>
+  return <section className="panel"><div className="notice">Cargando módulo…</div></section>
 }
 
 export default function AppRoot(){
-  const[overlay,setOverlay]=useState('inventario')
+  const[overlay,setOverlay]=useState(null)
   const[target,setTarget]=useState(null)
   const[profile,setProfile]=useState(null)
+  const[refreshKey,setRefreshKey]=useState(0)
+  const redirected=useRef(false)
 
   useEffect(()=>{
     let disposed=false
-    let rafId=0
 
-    const setOverlaySafe=next=>{
-      // IMPORTANTE: también aceptamos null. Antes se ignoraba null y el último
-      // portal (POS, inventario, reportes, etc.) quedaba montado encima de
-      // Usuarios/Categorías/Clientes/Resumen/Configuración.
-      setOverlay(prev=>prev===next?prev:next)
-    }
-
-    const syncUi=()=>{
+    const syncShell=()=>{
       if(disposed)return
-
+      const shell=document.querySelector('.app-shell')
       const content=document.querySelector('.content')
+
       setTarget(prev=>prev===content?prev:content)
 
-      const appShell=document.querySelector('.app-shell')
-      if(!appShell){
+      if(!shell){
+        redirected.current=false
         setProfile(prev=>prev===null?prev:null)
-        setOverlaySafe(null)
+        setOverlay(prev=>prev===null?prev:null)
         return
       }
 
-      let inventoryBtn=null
       let productBtn=null
+      let inventoryBtn=null
 
       document.querySelectorAll('.sidebar nav button').forEach(btn=>{
-        const raw=(btn.textContent||'').trim().toLowerCase()
+        const label=(btn.textContent||'').trim().toLowerCase()
 
-        if(raw==='proveedores' && btn.style.display!=='none'){
-          btn.style.display='none'
-        }
+        if(label==='proveedores' && btn.style.display!=='none')btn.style.display='none'
 
-        if(raw==='productos'){
+        if(label==='productos'){
           productBtn=btn
           if(btn.style.display!=='none')btn.style.display='none'
         }
 
-        if(raw==='inventario'||raw==='productos e inventario'){
+        if(label==='inventario'||label==='productos e inventario'){
           inventoryBtn=btn
-          const text=btn.querySelector('span')
-          if(text && text.textContent!=='Productos e inventario'){
-            text.textContent='Productos e inventario'
-          }
+          const span=btn.querySelector('span')
+          if(span && span.textContent!=='Productos e inventario')span.textContent='Productos e inventario'
         }
 
-        if(raw==='gastos'||raw==='administración'){
-          const text=btn.querySelector('span')
-          if(text && text.textContent!=='Administración'){
-            text.textContent='Administración'
-          }
+        if(label==='gastos'||label==='administración'){
+          const span=btn.querySelector('span')
+          if(span && span.textContent!=='Administración')span.textContent='Administración'
         }
       })
 
-      const roleText=document.querySelector('.userbox span')?.textContent?.trim().toLowerCase()
-      if(roleText && ['admin','cajero','tecnico','usuario'].includes(roleText)){
-        setProfile(prev=>prev?.rol===roleText?prev:{rol:roleText})
-      }
+      const role=document.querySelector('.userbox span')?.textContent?.trim().toLowerCase()
+      if(role)setProfile(prev=>prev?.rol===role?prev:{rol:role})
 
       const active=document.querySelector('.sidebar nav button.active')
-
-      // AppV2 inicia históricamente en "productos". Esa opción está oculta
-      // porque ahora Productos + Inventario son una sola pantalla. Redirigimos
-      // una única vez hacia el botón visible de Productos e inventario.
-      if(active===productBtn && inventoryBtn){
+      if(active===productBtn && inventoryBtn && !redirected.current){
+        redirected.current=true
         inventoryBtn.click()
         return
       }
 
       if(active){
-        setOverlaySafe(overlayFromLabel(active.textContent))
+        const next=overlayFromLabel(active.textContent)
+        setOverlay(prev=>prev===next?prev:next)
       }
     }
-
-    const scheduleSync=()=>{
-      if(disposed||rafId)return
-      rafId=requestAnimationFrame(()=>{
-        rafId=0
-        syncUi()
-      })
-    }
-
-    scheduleSync()
-
-    const observer=new MutationObserver(scheduleSync)
-    observer.observe(document.body,{childList:true,subtree:true})
 
     const onClick=e=>{
-      const navBtn=e.target.closest('.sidebar nav button')
-      if(navBtn){
-        // Se actualiza inmediatamente en el mismo clic. Para las pantallas
-        // nativas de AppV2 esto desmonta el portal anterior al instante.
-        setOverlaySafe(overlayFromLabel(navBtn.textContent))
-        scheduleSync()
+      const btn=e.target.closest('.sidebar nav button')
+      if(btn){
+        const next=overlayFromLabel(btn.textContent)
+        setOverlay(next)
+        setRefreshKey(k=>k+1)
+        setTimeout(syncShell,0)
         return
       }
-
       if(e.target.closest('.logout')){
+        redirected.current=false
+        setOverlay(null)
         setTarget(null)
         setProfile(null)
-        setOverlaySafe(null)
-        scheduleSync()
+      }
+    }
+
+    const refreshVisibleModule=()=>{
+      if(document.visibilityState==='visible'){
+        syncShell()
+        setRefreshKey(k=>k+1)
+        window.dispatchEvent(new Event('electresid:refresh'))
       }
     }
 
     document.addEventListener('click',onClick,true)
+    document.addEventListener('visibilitychange',refreshVisibleModule)
+    window.addEventListener('focus',refreshVisibleModule)
+
+    // Comprobación ligera y estable. Sustituye el MutationObserver que generaba
+    // carreras entre el DOM de AppV2 y los módulos nuevos.
+    syncShell()
+    const timer=setInterval(syncShell,500)
 
     return()=>{
       disposed=true
-      if(rafId)cancelAnimationFrame(rafId)
-      observer.disconnect()
+      clearInterval(timer)
       document.removeEventListener('click',onClick,true)
+      document.removeEventListener('visibilitychange',refreshVisibleModule)
+      window.removeEventListener('focus',refreshVisibleModule)
     }
   },[])
 
@@ -156,7 +141,12 @@ export default function AppRoot(){
   if(overlay==='reportes')module=<Phase6Reports profile={profile}/>
 
   const portal=target&&module
-    ?createPortal(<Suspense fallback={<ModuleLoader/>}><div className="phase2-portal">{module}</div></Suspense>,target)
+    ?createPortal(
+      <Suspense fallback={<ModuleLoader/>}>
+        <div className="phase2-portal" key={`${overlay}-${refreshKey}`}>{module}</div>
+      </Suspense>,
+      target
+    )
     :null
 
   return <><AppV2/>{portal}</>
