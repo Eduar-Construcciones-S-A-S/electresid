@@ -30,75 +30,107 @@ export default function AppRoot(){
   const[profile,setProfile]=useState(null)
 
   useEffect(()=>{
-    let observer
-    let redirecting=false
     let disposed=false
+    let rafId=0
 
-    const syncTarget=()=>{
+    const syncUi=()=>{
       if(disposed)return
-      setTarget(document.querySelector('.content'))
+
+      const content=document.querySelector('.content')
+      setTarget(prev=>prev===content?prev:content)
+
+      const appShell=document.querySelector('.app-shell')
+      if(!appShell){
+        setProfile(prev=>prev===null?prev:null)
+        return
+      }
+
       let inventoryBtn=null
       let productBtn=null
 
       document.querySelectorAll('.sidebar nav button').forEach(btn=>{
-        const label=(btn.textContent||'').trim().toLowerCase()
-        if(label==='proveedores')btn.style.display='none'
-        if(label==='productos'){
-          productBtn=btn
+        const raw=(btn.textContent||'').trim().toLowerCase()
+
+        if(raw==='proveedores' && btn.style.display!=='none'){
           btn.style.display='none'
         }
-        if(label==='inventario'||label==='productos e inventario'){
+
+        if(raw==='productos'){
+          productBtn=btn
+          if(btn.style.display!=='none')btn.style.display='none'
+        }
+
+        if(raw==='inventario'||raw==='productos e inventario'){
           inventoryBtn=btn
           const text=btn.querySelector('span')
-          if(text)text.textContent='Productos e inventario'
+          if(text && text.textContent!=='Productos e inventario'){
+            text.textContent='Productos e inventario'
+          }
         }
-        if(label==='gastos'){
+
+        if(raw==='gastos'||raw==='administración'){
           const text=btn.querySelector('span')
-          if(text)text.textContent='Administración'
+          if(text && text.textContent!=='Administración'){
+            text.textContent='Administración'
+          }
         }
       })
 
-      // AppV2 es el único dueño de la sesión de Supabase. AppRoot NO llama
-      // getSession/onAuthStateChange para evitar locks duplicados de Auth.
-      // Para los módulos nuevos solo necesitamos el rol; lo leemos de la UI
-      // que AppV2 ya construye después de cargar el perfil.
       const roleText=document.querySelector('.userbox span')?.textContent?.trim().toLowerCase()
       if(roleText && ['admin','cajero','tecnico','usuario'].includes(roleText)){
         setProfile(prev=>prev?.rol===roleText?prev:{rol:roleText})
-      }else if(!document.querySelector('.app-shell')){
-        setProfile(null)
       }
 
       const active=document.querySelector('.sidebar nav button.active')
-      const activeLabel=(active?.textContent||'').trim().toLowerCase()
-
-      if(active===productBtn && inventoryBtn && !redirecting){
-        redirecting=true
-        setTimeout(()=>{
-          if(disposed)return
-          inventoryBtn.click()
-          redirecting=false
-        },0)
+      if(active===productBtn && inventoryBtn){
+        inventoryBtn.click()
         return
       }
 
-      if(active)setOverlay(overlayFromLabel(activeLabel))
+      if(active){
+        const next=overlayFromLabel(active.textContent)
+        if(next)setOverlay(prev=>prev===next?prev:next)
+      }
     }
 
-    const timer=setTimeout(syncTarget,0)
-    observer=new MutationObserver(syncTarget)
-    observer.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class']})
+    const scheduleSync=()=>{
+      if(disposed||rafId)return
+      rafId=requestAnimationFrame(()=>{
+        rafId=0
+        syncUi()
+      })
+    }
+
+    scheduleSync()
+
+    // Solo observamos cambios estructurales. Antes se observaban también cambios
+    // de class y el propio sync modificaba el DOM, generando un ciclo continuo
+    // MutationObserver -> setState/DOM -> MutationObserver que congelaba la página.
+    const observer=new MutationObserver(scheduleSync)
+    observer.observe(document.body,{childList:true,subtree:true})
 
     const onClick=e=>{
-      const btn=e.target.closest('.sidebar nav button')
-      if(!btn)return
-      setOverlay(overlayFromLabel(btn.textContent))
+      const navBtn=e.target.closest('.sidebar nav button')
+      if(navBtn){
+        const next=overlayFromLabel(navBtn.textContent)
+        if(next)setOverlay(prev=>prev===next?prev:next)
+        scheduleSync()
+        return
+      }
+
+      if(e.target.closest('.logout')){
+        setTarget(null)
+        setProfile(null)
+        setOverlay('inventario')
+        scheduleSync()
+      }
     }
+
     document.addEventListener('click',onClick,true)
 
     return()=>{
       disposed=true
-      clearTimeout(timer)
+      if(rafId)cancelAnimationFrame(rafId)
       observer.disconnect()
       document.removeEventListener('click',onClick,true)
     }
