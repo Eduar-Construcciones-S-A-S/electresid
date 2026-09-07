@@ -33,26 +33,44 @@ function FixedPOS(){
 
   const load=async()=>{
     setLoading(true)
-    const[v,s,c,ca]=await Promise.all([
-      supabase.from('variantes').select('id,sku,codigo_barras,nombre,precio_venta,activo,producto:productos(nombre)').eq('activo',true).limit(800),
-      supabase.from('stock_actual').select('variante_id,stock'),
-      supabase.from('clientes').select('id,nombre,documento').order('nombre'),
-      supabase.rpc('caja_abierta_usuario')
-    ])
-    const err=[v,s,c,ca].find(x=>x.error)?.error
-    if(err){
-      setMsg(`No se pudieron cargar los productos: ${err.message}`)
-      setItems([])
-    }else{
+    try{
+      const[v,s,c,ca]=await Promise.all([
+        supabase.from('variantes').select('id,sku,codigo_barras,nombre,precio_venta,activo,producto:productos(nombre)').eq('activo',true).limit(800),
+        supabase.from('stock_actual').select('variante_id,stock'),
+        supabase.from('clientes').select('id,nombre,documento').order('nombre'),
+        supabase.rpc('caja_abierta_usuario')
+      ])
+      const err=[v,s,c,ca].find(x=>x.error)?.error
+      if(err){
+        setMsg(`No se pudieron cargar los datos del POS: ${err.message}`)
+        return
+      }
       const stockMap=Object.fromEntries((s.data||[]).map(x=>[x.variante_id,Number(x.stock||0)]))
       setItems((v.data||[]).map(x=>({...x,stock_actual:stockMap[x.id]||0})))
       setClients(c.data||[])
       setCash(ca.data||null)
+    }catch(error){
+      setMsg(`No se pudieron cargar los datos del POS: ${error?.message||'error de conexión'}`)
+    }finally{
+      setLoading(false)
     }
-    setLoading(false)
   }
 
-  useEffect(()=>{load()},[])
+  useEffect(()=>{
+    load()
+    const refresh=()=>load()
+    const visibility=()=>{if(document.visibilityState==='visible')load()}
+    window.addEventListener('focus',refresh)
+    window.addEventListener('electresid:refresh',refresh)
+    document.addEventListener('visibilitychange',visibility)
+    const timer=setInterval(refresh,15000)
+    return()=>{
+      window.removeEventListener('focus',refresh)
+      window.removeEventListener('electresid:refresh',refresh)
+      document.removeEventListener('visibilitychange',visibility)
+      clearInterval(timer)
+    }
+  },[])
 
   const filtered=useMemo(()=>{
     const s=q.trim().toLowerCase()
@@ -86,7 +104,7 @@ function FixedPOS(){
 
   const sell=async()=>{
     setMsg('')
-    if(!cash)return setMsg('Debes abrir caja antes de vender.')
+    if(!cash)return setMsg('La caja está cerrada. Entra a la pestaña Caja, abre una caja y vuelve a cobrar. El botón ya no queda bloqueado silenciosamente.')
     if(!cart.length)return setMsg('El carrito está vacío.')
     if(total<=0)return setMsg('El total de la venta debe ser mayor a cero.')
     if(buyerMode==='registered'&&!client)return setMsg('Selecciona el cliente registrado.')
@@ -97,8 +115,6 @@ function FixedPOS(){
       if(p.metodo==='efectivo'&&Number(p.recibido||p.valor)<Number(p.valor))return setMsg('El efectivo recibido no puede ser menor al valor aplicado.')
     }
 
-    // Se abre en el mismo clic del usuario para que el navegador no lo bloquee.
-    // Cuando Supabase confirma la venta, este mismo documento se llena y se manda a imprimir.
     const ticketWindow=window.open('','electresid-ticket','width=360,height=720')
     if(ticketWindow){
       ticketWindow.document.write('<!doctype html><html><body style="font-family:Arial;text-align:center;padding:20px">Preparando factura...</body></html>')
@@ -106,54 +122,51 @@ function FixedPOS(){
     }
 
     setBusy(true)
-    const payload=payments.filter(p=>Number(p.valor)>0).map(p=>({
-      metodo:p.metodo,
-      valor:Number(p.valor),
-      recibido:p.metodo==='efectivo'?Number(p.recibido||p.valor):Number(p.valor),
-      referencia:p.referencia||null
-    }))
+    try{
+      const payload=payments.filter(p=>Number(p.valor)>0).map(p=>({
+        metodo:p.metodo,
+        valor:Number(p.valor),
+        recibido:p.metodo==='efectivo'?Number(p.recibido||p.valor):Number(p.valor),
+        referencia:p.referencia||null
+      }))
 
-    const{data,error}=await supabase.rpc('registrar_venta_con_comprador',{
-      p_items:cart.map(x=>({variante_id:x.id,cantidad:x.qty})),
-      p_pagos:payload,
-      p_cliente_id:buyerMode==='registered'?client:null,
-      p_caja_id:cash,
-      p_descuento:Number(discount||0),
-      p_observacion:null,
-      p_comprador_nombre:buyerMode==='manual'?(buyerName.trim()||null):null,
-      p_comprador_documento:buyerMode==='manual'?(buyerDoc.trim()||null):null,
-      p_comprador_tipo_documento:buyerMode==='manual'&&buyerDoc.trim()?buyerDocType:null
-    })
+      const{data,error}=await supabase.rpc('registrar_venta_con_comprador',{
+        p_items:cart.map(x=>({variante_id:x.id,cantidad:x.qty})),
+        p_pagos:payload,
+        p_cliente_id:buyerMode==='registered'?client:null,
+        p_caja_id:cash,
+        p_descuento:Number(discount||0),
+        p_observacion:null,
+        p_comprador_nombre:buyerMode==='manual'?(buyerName.trim()||null):null,
+        p_comprador_documento:buyerMode==='manual'?(buyerDoc.trim()||null):null,
+        p_comprador_tipo_documento:buyerMode==='manual'&&buyerDoc.trim()?buyerDocType:null
+      })
 
-    if(error){
-      if(ticketWindow&&!ticketWindow.closed)ticketWindow.close()
-      setMsg(error.message)
-      setBusy(false)
-      return
-    }
+      if(error)throw error
 
-    const{data:v,error:ve}=await supabase.from('ventas').select('*,cliente:clientes(*),detalle_ventas(*),pagos_venta(*)').eq('id',data).single()
-    if(ve){
-      if(ticketWindow&&!ticketWindow.closed)ticketWindow.close()
-      setMsg(`Venta registrada, pero no se pudo cargar el comprobante: ${ve.message}`)
-    }else{
+      const{data:v,error:ve}=await supabase.from('ventas').select('*,cliente:clientes(*),detalle_ventas(*),pagos_venta(*)').eq('id',data).single()
+      if(ve)throw new Error(`Venta registrada, pero no se pudo cargar el comprobante: ${ve.message}`)
+
       setMsg(`Venta #${v.numero} registrada correctamente. Factura enviada a impresión.`)
       printTicket80(v,ticketWindow)
+      setCart([])
+      setDiscount(0)
+      setPayments([{metodo:'efectivo',valor:'',recibido:'',referencia:''}])
+      resetBuyer()
+      await load()
+    }catch(error){
+      if(ticketWindow&&!ticketWindow.closed)ticketWindow.close()
+      setMsg(error?.message||'No fue posible registrar la venta.')
+    }finally{
+      setBusy(false)
     }
-
-    setCart([])
-    setDiscount(0)
-    setPayments([{metodo:'efectivo',valor:'',recibido:'',referencia:''}])
-    resetBuyer()
-    await load()
-    setBusy(false)
   }
 
-  return <div className="p3-pos"><div className="p3-status"><span className={cash?'ok':'bad'}>{cash?'Caja abierta':'Caja cerrada'}</span><span>Subtotal {money(subtotal)}</span><span>Descuento {money(discount)}</span><strong>Total {money(total)}</strong></div>{msg&&<div className="notice">{msg}</div>}<div className="p3-pos-grid"><section><div className="search"><Search size={18}/><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar por nombre, SKU o código de barras..." autoFocus/></div>{loading&&<div className="notice">Cargando productos…</div>}<div className="p3-products">{filtered.map(x=><button key={x.id} className="p3-product" onClick={()=>add(x)} disabled={Number(x.stock_actual)<=0}><ShoppingCart size={17}/><b>{x.producto?.nombre}</b><span>{x.nombre||'Sin variante'}</span><small>{x.sku} · Stock {x.stock_actual}</small><strong>{money(x.precio_venta)}</strong></button>)}</div>{!loading&&q&&filtered.length===0&&<div className="notice">No se encontró ningún producto con ese nombre, SKU o código de barras.</div>}</section><aside className="p3-cart"><h3>Carrito</h3>
+  return <div className="p3-pos"><div className="p3-status"><span className={cash?'ok':'bad'}>{cash?'Caja abierta':'Caja cerrada'}</span><span>Subtotal {money(subtotal)}</span><span>Descuento {money(discount)}</span><strong>Total {money(total)}</strong></div>{msg&&<div className="notice">{msg}</div>}<div className="p3-pos-grid"><section><div className="search"><Search size={18}/><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar por nombre, SKU o código de barras..." autoFocus/></div>{loading&&<div className="notice">Actualizando productos…</div>}<div className="p3-products">{filtered.map(x=><button key={x.id} className="p3-product" onClick={()=>add(x)} disabled={Number(x.stock_actual)<=0}><ShoppingCart size={17}/><b>{x.producto?.nombre}</b><span>{x.nombre||'Sin variante'}</span><small>{x.sku} · Stock {x.stock_actual}</small><strong>{money(x.precio_venta)}</strong></button>)}</div>{!loading&&items.length===0&&<div className="notice">No hay productos disponibles. Pulsa otra sección y vuelve o espera unos segundos: el POS se actualiza automáticamente.</div>}{!loading&&q&&filtered.length===0&&items.length>0&&<div className="notice">No se encontró ningún producto con ese nombre, SKU o código de barras.</div>}</section><aside className="p3-cart"><h3>Carrito</h3>
     <label className="p3-field"><span>Comprador</span><select value={buyerMode} onChange={e=>{setBuyerMode(e.target.value);setClient('');setBuyerName('');setBuyerDoc('')}}><option value="final">Consumidor final</option><option value="registered">Cliente registrado</option><option value="manual">Datos solo para esta venta</option></select></label>
     {buyerMode==='registered'&&<label className="p3-field"><span>Cliente registrado</span><select value={client} onChange={e=>setClient(e.target.value)}><option value="">Selecciona cliente...</option>{clients.map(c=><option key={c.id} value={c.id}>{c.nombre}{c.documento?` · ${c.documento}`:''}</option>)}</select></label>}
     {buyerMode==='manual'&&<div className="p3-buyer-manual"><label className="p3-field"><span>Nombre / razón social</span><input value={buyerName} onChange={e=>setBuyerName(e.target.value)} placeholder="Persona o empresa (opcional)"/></label><div className="p3-payment"><select value={buyerDocType} onChange={e=>setBuyerDocType(e.target.value)}><option value="cc">Cédula</option><option value="nit">NIT</option><option value="ce">Cédula extranjería</option><option value="pasaporte">Pasaporte</option><option value="otro">Otro</option></select><input value={buyerDoc} onChange={e=>setBuyerDoc(e.target.value)} placeholder={buyerDocType==='nit'?'NIT':'Número de documento'}/></div><small>Estos datos se guardan únicamente en la venta; no crean un cliente.</small></div>}
-    <div className="p3-cart-list">{cart.map(x=><div className="p3-cart-row" key={x.id}><div><b>{x.producto?.nombre}</b><span>{x.nombre||x.sku}</span></div><input type="number" min="1" max={x.stock_actual} value={x.qty} onChange={e=>updateQty(x.id,Number(e.target.value))}/><strong>{money(x.qty*x.precio_venta)}</strong><button onClick={()=>setCart(c=>c.filter(y=>y.id!==x.id))}><X size={15}/></button></div>)}</div><label className="p3-field"><span>Descuento general</span><input type="number" min="0" max={subtotal} value={discount} onChange={e=>setDiscount(e.target.value)}/></label><div className="p3-total"><span>Total</span><b>{money(total)}</b></div><h4>Métodos de pago</h4>{payments.map((p,i)=><div className="p3-payment" key={i}><select value={p.metodo} onChange={e=>setPay(i,'metodo',e.target.value)}>{methods.map(m=><option key={m}>{m}</option>)}</select><input type="number" min="0" value={p.valor} onChange={e=>setPay(i,'valor',e.target.value)} placeholder="Valor aplicado"/>{p.metodo==='efectivo'&&<input type="number" min="0" value={p.recibido} onChange={e=>setPay(i,'recibido',e.target.value)} placeholder="Efectivo recibido"/>}<input value={p.referencia} onChange={e=>setPay(i,'referencia',e.target.value)} placeholder="Referencia opcional"/>{payments.length>1&&<button onClick={()=>setPayments(ps=>ps.filter((_,j)=>j!==i))}><X size={15}/></button>}</div>)}<button className="secondary compact" onClick={addPayment}><Plus size={15}/>Dividir pago</button><div className="p3-pay-summary"><span>Pagado: <b>{money(paid)}</b></span><span>Falta: <b>{money(Math.max(total-paid,0))}</b></span>{payments.filter(p=>p.metodo==='efectivo').map((p,i)=><span key={i}>Cambio: <b>{money(Math.max(Number(p.recibido||0)-Number(p.valor||0),0))}</b></span>)}</div><button className="primary full" disabled={busy||!cart.length||!cash} onClick={sell}>{busy?'Procesando...':'Cobrar e imprimir'}</button></aside></div></div>
+    <div className="p3-cart-list">{cart.map(x=><div className="p3-cart-row" key={x.id}><div><b>{x.producto?.nombre}</b><span>{x.nombre||x.sku}</span></div><input type="number" min="1" max={x.stock_actual} value={x.qty} onChange={e=>updateQty(x.id,Number(e.target.value))}/><strong>{money(x.qty*x.precio_venta)}</strong><button onClick={()=>setCart(c=>c.filter(y=>y.id!==x.id))}><X size={15}/></button></div>)}</div><label className="p3-field"><span>Descuento general</span><input type="number" min="0" max={subtotal} value={discount} onChange={e=>setDiscount(e.target.value)}/></label><div className="p3-total"><span>Total</span><b>{money(total)}</b></div><h4>Métodos de pago</h4>{payments.map((p,i)=><div className="p3-payment" key={i}><select value={p.metodo} onChange={e=>setPay(i,'metodo',e.target.value)}>{methods.map(m=><option key={m}>{m}</option>)}</select><input type="number" min="0" value={p.valor} onChange={e=>setPay(i,'valor',e.target.value)} placeholder="Valor aplicado"/>{p.metodo==='efectivo'&&<input type="number" min="0" value={p.recibido} onChange={e=>setPay(i,'recibido',e.target.value)} placeholder="Efectivo recibido"/>}<input value={p.referencia} onChange={e=>setPay(i,'referencia',e.target.value)} placeholder="Referencia opcional"/>{payments.length>1&&<button onClick={()=>setPayments(ps=>ps.filter((_,j)=>j!==i))}><X size={15}/></button>}</div>)}<button className="secondary compact" onClick={addPayment}><Plus size={15}/>Dividir pago</button><div className="p3-pay-summary"><span>Pagado: <b>{money(paid)}</b></span><span>Falta: <b>{money(Math.max(total-paid,0))}</b></span>{payments.filter(p=>p.metodo==='efectivo').map((p,i)=><span key={i}>Cambio: <b>{money(Math.max(Number(p.recibido||0)-Number(p.valor||0),0))}</b></span>)}</div><button className="primary full" disabled={busy||!cart.length} onClick={sell}>{busy?'Procesando...':cash?'Cobrar e imprimir':'Caja cerrada · abrir antes de cobrar'}</button></aside></div></div>
 }
 
 function escapeHtml(value=''){
