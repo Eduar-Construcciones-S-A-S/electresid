@@ -17,6 +17,8 @@ function overlayFromLabel(label){
   if(l==='reparaciones')return 'reparaciones'
   if(l==='administración')return 'administracion'
   if(l==='reportes')return 'reportes'
+  // Usuarios, Categorías, Clientes, Resumen y Configuración son pantallas
+  // nativas de AppV2. null significa que NO debe existir un portal encima.
   return null
 }
 
@@ -33,6 +35,13 @@ export default function AppRoot(){
     let disposed=false
     let rafId=0
 
+    const setOverlaySafe=next=>{
+      // IMPORTANTE: también aceptamos null. Antes se ignoraba null y el último
+      // portal (POS, inventario, reportes, etc.) quedaba montado encima de
+      // Usuarios/Categorías/Clientes/Resumen/Configuración.
+      setOverlay(prev=>prev===next?prev:next)
+    }
+
     const syncUi=()=>{
       if(disposed)return
 
@@ -42,6 +51,7 @@ export default function AppRoot(){
       const appShell=document.querySelector('.app-shell')
       if(!appShell){
         setProfile(prev=>prev===null?prev:null)
+        setOverlaySafe(null)
         return
       }
 
@@ -82,14 +92,17 @@ export default function AppRoot(){
       }
 
       const active=document.querySelector('.sidebar nav button.active')
+
+      // AppV2 inicia históricamente en "productos". Esa opción está oculta
+      // porque ahora Productos + Inventario son una sola pantalla. Redirigimos
+      // una única vez hacia el botón visible de Productos e inventario.
       if(active===productBtn && inventoryBtn){
         inventoryBtn.click()
         return
       }
 
       if(active){
-        const next=overlayFromLabel(active.textContent)
-        if(next)setOverlay(prev=>prev===next?prev:next)
+        setOverlaySafe(overlayFromLabel(active.textContent))
       }
     }
 
@@ -103,17 +116,15 @@ export default function AppRoot(){
 
     scheduleSync()
 
-    // Solo observamos cambios estructurales. Antes se observaban también cambios
-    // de class y el propio sync modificaba el DOM, generando un ciclo continuo
-    // MutationObserver -> setState/DOM -> MutationObserver que congelaba la página.
     const observer=new MutationObserver(scheduleSync)
     observer.observe(document.body,{childList:true,subtree:true})
 
     const onClick=e=>{
       const navBtn=e.target.closest('.sidebar nav button')
       if(navBtn){
-        const next=overlayFromLabel(navBtn.textContent)
-        if(next)setOverlay(prev=>prev===next?prev:next)
+        // Se actualiza inmediatamente en el mismo clic. Para las pantallas
+        // nativas de AppV2 esto desmonta el portal anterior al instante.
+        setOverlaySafe(overlayFromLabel(navBtn.textContent))
         scheduleSync()
         return
       }
@@ -121,7 +132,7 @@ export default function AppRoot(){
       if(e.target.closest('.logout')){
         setTarget(null)
         setProfile(null)
-        setOverlay('inventario')
+        setOverlaySafe(null)
         scheduleSync()
       }
     }
